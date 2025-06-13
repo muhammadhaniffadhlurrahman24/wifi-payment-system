@@ -40,76 +40,50 @@ export function ExportData() {
     })
   }
 
-  // Helper function to calculate remaining deposit after applying to previous months
-  const calculateRemainingDeposit = (customer: any, targetYear: number, targetMonth: number) => {
-    const currentDate = new Date()
-    const currentMonth = currentDate.getMonth()
-    const currentYear = currentDate.getFullYear()
-
-    // Jika target bulan adalah bulan saat ini atau bulan sebelumnya, gunakan deposit saat ini
-    if (targetYear < currentYear || (targetYear === currentYear && targetMonth <= currentMonth)) {
-      return customer.deposit || 0
-    }
-
-    // Hitung berapa bulan ke depan dari bulan saat ini
-    const monthsAhead = (targetYear - currentYear) * 12 + (targetMonth - currentMonth)
-
-    // Mulai dengan deposit saat ini
-    let remainingDeposit = customer.deposit || 0
-
-    // Kurangi deposit untuk setiap bulan antara bulan saat ini dan target bulan
-    for (let i = 1; i <= monthsAhead; i++) {
-      // Jika deposit masih cukup untuk menutupi biaya bulanan
-      if (remainingDeposit >= customer.monthlyFee) {
-        remainingDeposit -= customer.monthlyFee
-      } else {
-        // Deposit tidak cukup untuk bulan ini
-        remainingDeposit = 0
-        break
-      }
-    }
-
-    return remainingDeposit
+  // Fungsi sederhana untuk menghitung berapa bulan yang bisa dibayar dengan deposit
+  const calculateMonthsCoveredByDeposit = (customer: any) => {
+    if (customer.monthlyFee === 0) return 0
+    return Math.floor((customer.deposit || 0) / customer.monthlyFee)
   }
 
-  // Helper function to create sheet data for a specific month
+  // Fungsi untuk menghitung sisa deposit setelah digunakan untuk sejumlah bulan
+  const calculateRemainingDepositAfterMonths = (customer: any, monthsUsed: number) => {
+    const totalUsed = monthsUsed * customer.monthlyFee
+    return Math.max(0, (customer.deposit || 0) - totalUsed)
+  }
+
+  // Fungsi untuk memeriksa apakah bulan tertentu sudah dibayar dengan pembayaran aktual
+  const hasActualPaymentForMonth = (customerId: string, year: number, month: number) => {
+    return payments.some((payment) => {
+      const paymentDate = new Date(payment.date)
+      return payment.customerId === customerId && paymentDate.getMonth() === month && paymentDate.getFullYear() === year
+    })
+  }
+
   const createMonthSheetData = (year: number, month: number) => {
     const currentDate = new Date()
     const currentMonth = currentDate.getMonth()
     const currentYear = currentDate.getFullYear()
 
     const monthPayments = getPaymentsForMonth(year, month)
-    const paidCustomerIds = new Set(monthPayments.map((p) => p.customerId))
 
     return customers.map((customer, index) => {
       const payment = monthPayments.find((p) => p.customerId === customer.customerId)
 
-      // Tentukan apakah ini bulan saat ini, bulan depan, atau bulan lainnya
+      // Tentukan apakah ini bulan saat ini atau bulan mendatang
       const isCurrentMonth = year === currentYear && month === currentMonth
-      const isNextMonth =
-        (year === currentYear && month === currentMonth + 1) ||
-        (year === currentYear + 1 && currentMonth === 11 && month === 0)
       const isFutureMonth = year > currentYear || (year === currentYear && month > currentMonth)
 
       let status = ""
       let tanggalBayar = ""
       let nominal = 0
-
-      // Hitung uang titip yang tersisa untuk bulan ini
       let uangTitip = 0
-
-      if (isCurrentMonth) {
-        // Untuk bulan saat ini, gunakan nilai deposit saat ini
-        uangTitip = customer.deposit || 0
-      } else if (isFutureMonth) {
-        // Untuk bulan mendatang, hitung sisa deposit setelah digunakan untuk bulan-bulan sebelumnya
-        uangTitip = calculateRemainingDeposit(customer, year, month)
-      }
 
       if (customer.status === "inactive") {
         status = "Tidak Berlangganan"
+        uangTitip = 0
       } else {
-        // Cek apakah sudah ada pembayaran aktual
+        // Cek apakah sudah ada pembayaran aktual untuk bulan ini
         const hasActualPayment = payment !== undefined
 
         if (hasActualPayment) {
@@ -117,16 +91,64 @@ export function ExportData() {
           status = "Sudah Bayar"
           tanggalBayar = format(new Date(payment.date), "dd/MM/yyyy")
           nominal = payment.amount
-        } else if (isFutureMonth && uangTitip >= customer.monthlyFee) {
-          // Bulan mendatang dan ada uang titip yang cukup
-          status = "Sudah Bayar (Uang Titip)"
-          tanggalBayar = "Auto (Uang Titip)"
-          nominal = customer.monthlyFee
-        } else {
-          // Belum bayar
+          uangTitip = customer.deposit || 0
+        } else if (isCurrentMonth) {
+          // Bulan saat ini, belum bayar
           status = "Belum Bayar"
-          tanggalBayar = ""
-          nominal = 0
+          uangTitip = customer.deposit || 0
+        } else if (isFutureMonth) {
+          // Bulan mendatang - hitung apakah bisa dibayar dengan deposit
+
+          // Hitung berapa bulan dari bulan saat ini ke bulan target
+          let monthsFromCurrent = 0
+          if (year === currentYear) {
+            monthsFromCurrent = month - currentMonth
+          } else {
+            monthsFromCurrent = 12 - currentMonth + (month + (year - currentYear - 1) * 12)
+          }
+
+          // Hitung berapa bulan yang sudah "terpakai" dari deposit
+          let monthsUsedFromDeposit = 0
+
+          // Periksa bulan-bulan antara bulan saat ini dan bulan target
+          for (let i = 1; i <= monthsFromCurrent; i++) {
+            const checkMonth = (currentMonth + i) % 12
+            const checkYear = currentYear + Math.floor((currentMonth + i) / 12)
+
+            // Jika bulan ini adalah bulan target, hitung statusnya
+            if (checkMonth === month && checkYear === year) {
+              // Hitung sisa deposit setelah digunakan untuk bulan-bulan sebelumnya
+              const remainingDeposit = calculateRemainingDepositAfterMonths(customer, monthsUsedFromDeposit)
+
+              if (remainingDeposit >= customer.monthlyFee) {
+                status = "Sudah Bayar (Uang Titip)"
+                tanggalBayar = "Auto (Uang Titip)"
+                nominal = customer.monthlyFee
+                uangTitip = remainingDeposit
+              } else {
+                status = "Belum Bayar"
+                uangTitip = remainingDeposit
+              }
+              break
+            } else {
+              // Untuk bulan-bulan sebelum target, cek apakah ada pembayaran aktual
+              const hasPaymentForThisMonth = hasActualPaymentForMonth(customer.customerId, checkYear, checkMonth)
+
+              if (!hasPaymentForThisMonth) {
+                // Jika tidak ada pembayaran aktual, gunakan deposit
+                const remainingDeposit = calculateRemainingDepositAfterMonths(customer, monthsUsedFromDeposit)
+                if (remainingDeposit >= customer.monthlyFee) {
+                  monthsUsedFromDeposit++
+                } else {
+                  // Deposit tidak cukup, bulan target pasti belum bayar
+                  status = "Belum Bayar"
+                  uangTitip = Math.max(0, remainingDeposit)
+                  break
+                }
+              }
+              // Jika ada pembayaran aktual, tidak perlu menggunakan deposit
+            }
+          }
         }
       }
 
@@ -138,23 +160,23 @@ export function ExportData() {
       // Determine row style based on customer status and debt
       let rowStyle = "DataStyle"
       if (customer.status === "inactive") {
-        rowStyle = "InactiveStyle" // Red background for inactive customers
+        rowStyle = "InactiveStyle"
       } else if (tunggakan > 0) {
-        rowStyle = "DebtStyle" // Yellow background for customers with debt
+        rowStyle = "DebtStyle"
       }
 
       return {
         no: index + 1,
         nama: customer.name,
         tarif: customer.monthlyFee,
-        bandwidth: customer.bandwidth || 4, // Default to 4 if not set
+        bandwidth: customer.bandwidth || 4,
         tunggakan: tunggakan,
         uangTitip: uangTitip,
         totalKewajiban: totalKewajiban,
         status: status,
         tanggal: tanggalBayar,
         nominal: nominal,
-        rowStyle: rowStyle, // Add row style information
+        rowStyle: rowStyle,
       }
     })
   }
@@ -501,12 +523,8 @@ export function ExportData() {
         const uangTitip = customer.deposit || 0
         let nextMonthStatus = ""
 
-        // Hitung uang titip untuk bulan depan
-        const nextMonthDeposit = uangTitip >= customer.monthlyFee ? uangTitip - customer.monthlyFee : 0
-
-        // Hitung uang titip untuk bulan setelah bulan depan
-        const twoMonthsAheadDeposit =
-          nextMonthDeposit >= customer.monthlyFee ? nextMonthDeposit - customer.monthlyFee : 0
+        // Hitung berapa bulan yang bisa dibayar dengan deposit
+        const monthsCoveredByDeposit = calculateMonthsCoveredByDeposit(customer)
 
         if (customer.status === "inactive") {
           status = "Tidak Berlangganan"
@@ -524,11 +542,21 @@ export function ExportData() {
           // Status bulan depan
           if (nextMonthPayment) {
             nextMonthStatus = "Sudah Bayar"
-          } else if (uangTitip >= customer.monthlyFee) {
+          } else if (monthsCoveredByDeposit >= 1) {
             nextMonthStatus = "Sudah Bayar (Uang Titip)"
           } else {
             nextMonthStatus = "Belum Bayar"
           }
+        }
+
+        // Status 2 bulan depan
+        let twoMonthsAheadStatus = ""
+        if (customer.status === "inactive") {
+          twoMonthsAheadStatus = "Tidak Berlangganan"
+        } else if (monthsCoveredByDeposit >= 2) {
+          twoMonthsAheadStatus = "Sudah Bayar (Uang Titip)"
+        } else {
+          twoMonthsAheadStatus = "Belum Bayar"
         }
 
         // Hitung Total Kewajiban Bayar
@@ -544,14 +572,7 @@ export function ExportData() {
           Tunggakan: customer.debt > 0 ? `Rp ${customer.debt.toLocaleString("id-ID")}` : "Rp 0",
           "Uang Titip": uangTitip > 0 ? `Rp ${uangTitip.toLocaleString("id-ID")}` : "Rp 0",
           "Total Kewajiban Bayar": totalKewajiban > 0 ? `Rp ${totalKewajiban.toLocaleString("id-ID")}` : "Rp 0",
-          "Status Bulan Ini": status,
-          "Status Bulan Depan": nextMonthStatus,
-          "Status 2 Bulan Depan":
-            customer.status === "inactive"
-              ? "Tidak Berlangganan"
-              : twoMonthsAheadDeposit >= customer.monthlyFee
-                ? "Sudah Bayar (Uang Titip)"
-                : "Belum Bayar",
+          Status: status,
           "Tanggal Bayar": tanggalBayar || "-",
           Nominal: payment ? `Rp ${payment.amount.toLocaleString("id-ID")}` : "Rp 0",
         }
@@ -604,9 +625,7 @@ export function ExportData() {
             <th class="currency col-tunggakan">Tunggakan</th>
             <th class="currency col-uang-titip">Uang Titip</th>
             <th class="currency col-kewajiban">Total Kewajiban Bayar</th>
-            <th class="col-status">Status Bulan Ini</th>
-            <th class="col-status">Status Bulan Depan</th>
-            <th class="col-status">Status 2 Bulan Depan</th>
+            <th class="col-status">Status</th>
             <th class="col-tanggal">Tanggal Bayar</th>
             <th class="currency col-nominal">Nominal</th>
           </tr>
@@ -617,7 +636,7 @@ export function ExportData() {
       data.forEach((row) => {
         // Determine row class based on customer status and debt
         let rowClass = ""
-        if (row["Status Bulan Ini"] === "Tidak Berlangganan") {
+        if (row["Status"] === "Tidak Berlangganan") {
           rowClass = "inactive-row"
         } else if (row["Tunggakan"] !== "Rp 0") {
           rowClass = "debt-row"
@@ -632,9 +651,7 @@ export function ExportData() {
       <td class="currency">${row["Tunggakan"]}</td>
       <td class="currency">${row["Uang Titip"]}</td>
       <td class="currency">${row["Total Kewajiban Bayar"]}</td>
-      <td>${row["Status Bulan Ini"]}</td>
-      <td>${row["Status Bulan Depan"]}</td>
-      <td>${row["Status 2 Bulan Depan"]}</td>
+      <td>${row["Status"]}</td>
       <td>${row["Tanggal Bayar"]}</td>
       <td class="currency">${row.Nominal}</td>
     </tr>
@@ -644,26 +661,6 @@ export function ExportData() {
       htmlContent += `
           </tbody>
         </table>
-        
-        <script>
-          // Script untuk memastikan Excel melakukan autofit pada kolom
-          window.onload = function() {
-            try {
-              // Mencoba mengakses Excel ActiveX object (hanya bekerja di IE dengan Excel terinstall)
-              var excel = new ActiveXObject("Excel.Application");
-              excel.visible = true;
-              var book = excel.Workbooks.Add();
-              excel.DisplayAlerts = false;
-              
-              // Autofit semua kolom
-              var sheet = book.ActiveSheet;
-              sheet.Columns.AutoFit();
-            } catch(e) {
-              // Jika gagal, tidak perlu melakukan apa-apa
-              // Excel biasanya akan melakukan autofit secara otomatis
-            }
-          }
-        </script>
       </body>
     </html>
   `
@@ -801,7 +798,7 @@ export function ExportData() {
                     <strong>Struktur:</strong>
                     <br />• Title: NSMediaLink
                     <br />• Kolom: No, Nama, Tarif Bulanan, Bandwidth, Tunggakan, Uang Titip, Total Kewajiban Bayar,
-                    Status Bulan Ini, Status Bulan Depan, Status 2 Bulan Depan, Tanggal Bayar, Nominal
+                    Status, Tanggal Bayar, Nominal
                     <br />• Format: Excel (.xls) dengan styling
                     <br />• Kolom otomatis menyesuaikan lebar dengan konten (autofit)
                   </div>

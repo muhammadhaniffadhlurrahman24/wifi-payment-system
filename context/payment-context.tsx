@@ -181,6 +181,7 @@ export function PaymentProvider({ children }: { children: React.ReactNode }) {
   // Tambahkan fungsi untuk menangani pembayaran dengan debt dan deposit
   // Tambahkan ini setelah fungsi addPayment
 
+  // Perbaiki fungsi processPayment untuk menangani uang titip dengan benar
   const processPayment = async (customerId: string, amount: number, date: Date) => {
     try {
       setLoading(true)
@@ -221,6 +222,10 @@ export function PaymentProvider({ children }: { children: React.ReactNode }) {
         amount,
         date,
       })
+
+      // Refresh data setelah pembayaran
+      await fetchCustomers()
+      await fetchPayments()
 
       return {
         success: true,
