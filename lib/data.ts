@@ -1,0 +1,33 @@
+export const customerList = [
+  { id: "1", customerId: "CUST001", name: "PUNGKY 06", monthlyFee: 100000, status: "active", bandwidth: 8 },
+  { id: "2", customerId: "CUST002", name: "SUBCHAN 06", monthlyFee: 150000, status: "active", bandwidth: 10 },
+  { id: "3", customerId: "CUST003", name: "PURWANTI 06", monthlyFee: 150000, status: "active", bandwidth: 10 },
+  { id: "4", customerId: "CUST004", name: "BERBUDI 06", monthlyFee: 150000, status: "active", bandwidth: 10 },
+  { id: "5", customerId: "CUST005", name: "HERI 06", monthlyFee: 100000, status: "active", bandwidth: 8 },
+  { id: "6", customerId: "CUST006", name: "TONI 06", monthlyFee: 150000, status: "active", bandwidth: 10 },
+  { id: "7", customerId: "CUST007", name: "BIK 10", monthlyFee: 150000, status: "active", bandwidth: 10 },
+  { id: "8", customerId: "CUST008", name: "BUDI 06", monthlyFee: 150000, status: "active", bandwidth: 10 },
+  { id: "9", customerId: "CUST009", name: "AMAT 08", monthlyFee: 100000, status: "active", bandwidth: 4 },
+  { id: "10", customerId: "CUST010", name: "HARTO 06", monthlyFee: 100000, status: "active", bandwidth: 4 },
+  { id: "11", customerId: "CUST011", name: "VENTIKA 08", monthlyFee: 100000, status: "active", bandwidth: 4 },
+  { id: "12", customerId: "CUST012", name: "PRAS 08", monthlyFee: 100000, status: "active", bandwidth: 4 },
+  { id: "13", customerId: "CUST013", name: "MUGI 08", monthlyFee: 100000, status: "active", bandwidth: 4 },
+  { id: "14", customerId: "CUST014", name: "WIJI 08", monthlyFee: 100000, status: "active", bandwidth: 4 },
+  { id: "15", customerId: "CUST015", name: "JUNET 06", monthlyFee: 100000, status: "active", bandwidth: 4 },
+  { id: "16", customerId: "CUST016", name: "SATRIO 10", monthlyFee: 100000, status: "active", bandwidth: 4 },
+  { id: "17", customerId: "CUST017", name: "IWAN 06", monthlyFee: 100000, status: "active", bandwidth: 4 },
+  { id: "18", customerId: "CUST018", name: "AGUNG 03", monthlyFee: 100000, status: "active", bandwidth: 4 },
+  { id: "19", customerId: "CUST019", name: "KOKO 04", monthlyFee: 150000, status: "active", bandwidth: 10 },
+  { id: "20", customerId: "CUST020", name: "HADI 04", monthlyFee: 0, status: "inactive", bandwidth: 4 },
+  { id: "21", customerId: "CUST021", name: "FAJAR 06", monthlyFee: 100000, status: "active", bandwidth: 4 },
+  { id: "22", customerId: "CUST022", name: "DJOKO 06", monthlyFee: 150000, status: "active", bandwidth: 10 },
+  { id: "23", customerId: "CUST023", name: "IWAN O8", monthlyFee: 100000, status: "active", bandwidth: 4 },
+  { id: "24", customerId: "CUST024", name: "EDO 11", monthlyFee: 150000, status: "active", bandwidth: 10 },
+  { id: "25", customerId: "CUST025", name: "INDRA 12", monthlyFee: 100000, status: "active", bandwidth: 4 },
+  { id: "26", customerId: "CUST026", name: "RAFI 12", monthlyFee: 50000, status: "active", bandwidth: 4 },
+  { id: "27", customerId: "CUST027", name: "LUSI 12", monthlyFee: 150000, status: "active", bandwidth: 10 },
+  { id: "28", customerId: "CUST028", name: "LULUS 03", monthlyFee: 150000, status: "active", bandwidth: 10 },
+]
+
+export const getActiveCustomers = () => customerList.filter((customer) => customer.status === "active")
+export const getTotalMonthlyTarget = () => getActiveCustomers().reduce((sum, customer) => sum + customer.monthlyFee, 0)
