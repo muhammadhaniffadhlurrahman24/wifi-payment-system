@@ -53,17 +53,29 @@ export function PaymentProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
-  // Calculate derived values
-  const totalPaid = payments.reduce((sum, payment) => sum + payment.amount, 0)
+  // Calculate derived values for current month only
+  const now = new Date()
+  const currentMonth = now.getMonth()
+  const currentYear = now.getFullYear()
+
+  // Filter payments for current month only
+  const currentMonthPayments = payments.filter((payment) => {
+    const paymentDate = new Date(payment.date)
+    return paymentDate.getMonth() === currentMonth && paymentDate.getFullYear() === currentYear
+  })
+
+  const totalPaid = currentMonthPayments.reduce((sum, payment) => sum + payment.amount, 0)
 
   const activeCustomers = customers.filter((c) => c.status === "active")
-  const paidCustomerIds = new Set(payments.map((p) => p.customerId))
+  
+  // Get customer IDs who paid in current month
+  const currentMonthPaidCustomerIds = new Set(currentMonthPayments.map((p) => p.customerId))
 
   const totalUnpaid = activeCustomers
-    .filter((customer) => !paidCustomerIds.has(customer.customerId))
+    .filter((customer) => !currentMonthPaidCustomerIds.has(customer.customerId))
     .reduce((sum, customer) => sum + customer.monthlyFee, 0)
 
-  const totalCustomersPaid = activeCustomers.filter((customer) => paidCustomerIds.has(customer.customerId)).length
+  const totalCustomersPaid = activeCustomers.filter((customer) => currentMonthPaidCustomerIds.has(customer.customerId)).length
 
   const fetchCustomers = async () => {
     try {
