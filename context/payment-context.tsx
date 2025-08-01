@@ -64,18 +64,33 @@ export function PaymentProvider({ children }: { children: React.ReactNode }) {
     return paymentDate.getMonth() === currentMonth && paymentDate.getFullYear() === currentYear
   })
 
-  const totalPaid = currentMonthPayments.reduce((sum, payment) => sum + payment.amount, 0)
-
   const activeCustomers = customers.filter((c) => c.status === "active")
   
   // Get customer IDs who paid in current month
   const currentMonthPaidCustomerIds = new Set(currentMonthPayments.map((p) => p.customerId))
 
+  // Calculate customers who are considered "paid" (either paid this month or have sufficient deposit)
+  const customersPaid = activeCustomers.filter((customer) => {
+    const hasPaidThisMonth = currentMonthPaidCustomerIds.has(customer.customerId)
+    const hasSufficientDeposit = (customer.deposit || 0) >= customer.monthlyFee
+    return hasPaidThisMonth || hasSufficientDeposit
+  })
+
   const totalUnpaid = activeCustomers
-    .filter((customer) => !currentMonthPaidCustomerIds.has(customer.customerId))
+    .filter((customer) => {
+      const hasPaidThisMonth = currentMonthPaidCustomerIds.has(customer.customerId)
+      const hasSufficientDeposit = (customer.deposit || 0) >= customer.monthlyFee
+      return !hasPaidThisMonth && !hasSufficientDeposit
+    })
     .reduce((sum, customer) => sum + customer.monthlyFee, 0)
 
-  const totalCustomersPaid = activeCustomers.filter((customer) => currentMonthPaidCustomerIds.has(customer.customerId)).length
+  // Calculate total target (sum of all active customers' monthly fees)
+  const totalTarget = activeCustomers.reduce((sum, customer) => sum + customer.monthlyFee, 0)
+
+  // Calculate total paid as Target - Total Unpaid
+  const totalPaid = totalTarget - totalUnpaid
+
+  const totalCustomersPaid = customersPaid.length
 
   const fetchCustomers = async () => {
     try {

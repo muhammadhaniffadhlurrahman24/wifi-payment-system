@@ -37,15 +37,50 @@ export function CustomerList() {
   const [sorting, setSorting] = useState<SortingState>([])
   const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([])
 
-  // Prepare customer data with payment status
+  // Prepare customer data with payment status for current month
+  const now = new Date()
+  const currentMonth = now.getMonth()
+  const currentYear = now.getFullYear()
+
   const customerData: CustomerData[] = customers.map((customer) => {
-    const payment = payments.find((p) => p.customerId === customer.customerId)
+    // Find payment for current month only
+    const currentMonthPayment = payments.find((p) => {
+      const paymentDate = new Date(p.date)
+      return (
+        p.customerId === customer.customerId &&
+        paymentDate.getMonth() === currentMonth &&
+        paymentDate.getFullYear() === currentYear
+      )
+    })
+
+    // Find the most recent payment for this customer (for deposit users)
+    const mostRecentPayment = payments
+      .filter((p) => p.customerId === customer.customerId)
+      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())[0]
 
     let status: "paid" | "unpaid" | "inactive"
+    let paymentDate: Date | null = null
+    let amount: number | null = null
+
     if (customer.status === "inactive") {
       status = "inactive"
     } else {
-      status = payment ? "paid" : "unpaid"
+      // Check if customer has paid this month OR has sufficient deposit
+      const hasPaidThisMonth = currentMonthPayment !== undefined
+      const hasSufficientDeposit = (customer.deposit || 0) >= customer.monthlyFee
+      
+      status = hasPaidThisMonth || hasSufficientDeposit ? "paid" : "unpaid"
+
+      // Set payment date and amount
+      if (hasPaidThisMonth) {
+        // Customer paid this month
+        paymentDate = currentMonthPayment!.date
+        amount = currentMonthPayment!.amount
+      } else if (hasSufficientDeposit) {
+        // Customer using deposit - show most recent payment date or current date
+        paymentDate = mostRecentPayment ? mostRecentPayment.date : new Date()
+        amount = 0 // Show 0 for deposit users
+      }
     }
 
     return {
@@ -55,8 +90,8 @@ export function CustomerList() {
       monthlyFee: customer.monthlyFee,
       bandwidth: customer.bandwidth || 4, // Default to 4 if not set
       status,
-      amount: payment ? payment.amount : null,
-      paymentDate: payment ? payment.date : null,
+      amount,
+      paymentDate,
       debt: customer.debt || 0,
       deposit: customer.deposit || 0,
     }
@@ -137,14 +172,15 @@ export function CustomerList() {
       header: ({ column }) => {
         return (
           <Button variant="ghost" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}>
-            Nominal
+            Total Kewajiban
             <ArrowUpDown className="ml-2 h-4 w-4" />
           </Button>
         )
       },
       cell: ({ row }) => {
         const amount = row.getValue("amount") as number | null
-        return amount ? `Rp ${amount.toLocaleString("id-ID")}` : "-"
+        if (amount === null) return "-"
+        return `Rp ${amount.toLocaleString("id-ID")}`
       },
     },
     {

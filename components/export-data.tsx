@@ -70,85 +70,35 @@ export function ExportData() {
     return customers.map((customer, index) => {
       const payment = monthPayments.find((p) => p.customerId === customer.customerId)
 
-      // Tentukan apakah ini bulan saat ini atau bulan mendatang
-      const isCurrentMonth = year === currentYear && month === currentMonth
-      const isFutureMonth = year > currentYear || (year === currentYear && month > currentMonth)
+      // Find the most recent payment for this customer (for deposit users)
+      const mostRecentPayment = payments
+        .filter((p) => p.customerId === customer.customerId)
+        .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())[0]
 
       let status = ""
       let tanggalBayar = ""
       let nominal = 0
-      let uangTitip = 0
+      const uangTitip = customer.deposit || 0
 
       if (customer.status === "inactive") {
         status = "Tidak Berlangganan"
-        uangTitip = 0
       } else {
-        // Cek apakah sudah ada pembayaran aktual untuk bulan ini
-        const hasActualPayment = payment !== undefined
-
-        if (hasActualPayment) {
-          // Ada pembayaran aktual
+        // Check if customer has paid this month OR has sufficient deposit
+        const hasPaidThisMonth = payment !== undefined
+        const hasSufficientDeposit = (customer.deposit || 0) >= customer.monthlyFee
+        
+        if (hasPaidThisMonth) {
+          // Customer paid this month
           status = "Sudah Bayar"
           tanggalBayar = format(new Date(payment.date), "dd/MM/yyyy")
           nominal = payment.amount
-          uangTitip = customer.deposit || 0
-        } else if (isCurrentMonth) {
-          // Bulan saat ini, belum bayar
+        } else if (hasSufficientDeposit) {
+          // Customer using deposit - show most recent payment date or current date
+          status = "Sudah Bayar"
+          tanggalBayar = mostRecentPayment ? format(new Date(mostRecentPayment.date), "dd/MM/yyyy") : format(new Date(), "dd/MM/yyyy")
+          nominal = 0 // Show 0 for deposit users
+        } else {
           status = "Belum Bayar"
-          uangTitip = customer.deposit || 0
-        } else if (isFutureMonth) {
-          // Bulan mendatang - hitung apakah bisa dibayar dengan deposit
-
-          // Hitung berapa bulan dari bulan saat ini ke bulan target
-          let monthsFromCurrent = 0
-          if (year === currentYear) {
-            monthsFromCurrent = month - currentMonth
-          } else {
-            monthsFromCurrent = 12 - currentMonth + (month + (year - currentYear - 1) * 12)
-          }
-
-          // Hitung berapa bulan yang sudah "terpakai" dari deposit
-          let monthsUsedFromDeposit = 0
-
-          // Periksa bulan-bulan antara bulan saat ini dan bulan target
-          for (let i = 1; i <= monthsFromCurrent; i++) {
-            const checkMonth = (currentMonth + i) % 12
-            const checkYear = currentYear + Math.floor((currentMonth + i) / 12)
-
-            // Jika bulan ini adalah bulan target, hitung statusnya
-            if (checkMonth === month && checkYear === year) {
-              // Hitung sisa deposit setelah digunakan untuk bulan-bulan sebelumnya
-              const remainingDeposit = calculateRemainingDepositAfterMonths(customer, monthsUsedFromDeposit)
-
-              if (remainingDeposit >= customer.monthlyFee) {
-                status = "Sudah Bayar (Uang Titip)"
-                tanggalBayar = "Auto (Uang Titip)"
-                nominal = customer.monthlyFee
-                uangTitip = remainingDeposit
-              } else {
-                status = "Belum Bayar"
-                uangTitip = remainingDeposit
-              }
-              break
-            } else {
-              // Untuk bulan-bulan sebelum target, cek apakah ada pembayaran aktual
-              const hasPaymentForThisMonth = hasActualPaymentForMonth(customer.customerId, checkYear, checkMonth)
-
-              if (!hasPaymentForThisMonth) {
-                // Jika tidak ada pembayaran aktual, gunakan deposit
-                const remainingDeposit = calculateRemainingDepositAfterMonths(customer, monthsUsedFromDeposit)
-                if (remainingDeposit >= customer.monthlyFee) {
-                  monthsUsedFromDeposit++
-                } else {
-                  // Deposit tidak cukup, bulan target pasti belum bayar
-                  status = "Belum Bayar"
-                  uangTitip = Math.max(0, remainingDeposit)
-                  break
-                }
-              }
-              // Jika ada pembayaran aktual, tidak perlu menggunakan deposit
-            }
-          }
         }
       }
 
@@ -176,6 +126,7 @@ export function ExportData() {
         status: status,
         tanggal: tanggalBayar,
         nominal: nominal,
+        nominalAktual: payment ? payment.amount : 0,
         rowStyle: rowStyle,
       }
     })
@@ -367,13 +318,14 @@ export function ExportData() {
   <Column ss:AutoFitWidth="0" ss:Width="120"/>
   <Column ss:AutoFitWidth="0" ss:Width="100"/>
   <Column ss:AutoFitWidth="0" ss:Width="80"/>
+  <Column ss:AutoFitWidth="0" ss:Width="120"/>
   <Row ss:Height="25">
-   <Cell ss:MergeAcross="9" ss:StyleID="TitleStyle">
+   <Cell ss:MergeAcross="10" ss:StyleID="TitleStyle">
     <Data ss:Type="String">NSMediaLink</Data>
    </Cell>
   </Row>
   <Row ss:Height="25">
-   <Cell ss:MergeAcross="9" ss:StyleID="TitleStyle">
+   <Cell ss:MergeAcross="10" ss:StyleID="TitleStyle">
     <Data ss:Type="String">${monthName} ${currentYear}</Data>
    </Cell>
   </Row>
@@ -389,6 +341,7 @@ export function ExportData() {
    <Cell ss:StyleID="HeaderStyle"><Data ss:Type="String">Status</Data></Cell>
    <Cell ss:StyleID="HeaderStyle"><Data ss:Type="String">Tanggal Bayar</Data></Cell>
    <Cell ss:StyleID="HeaderStyle"><Data ss:Type="String">Nominal</Data></Cell>
+   <Cell ss:StyleID="HeaderStyle"><Data ss:Type="String">Nominal Aktual</Data></Cell>
   </Row>`
 
         monthData.forEach((row) => {
@@ -412,6 +365,7 @@ export function ExportData() {
       <Cell ss:StyleID="${stylePrefix}"><Data ss:Type="String">${row.status}</Data></Cell>
       <Cell ss:StyleID="${stylePrefix}"><Data ss:Type="String">${row.tanggal}</Data></Cell>
       <Cell ss:StyleID="${numberStylePrefix}"><Data ss:Type="Number">${row.nominal}</Data></Cell>
+      <Cell ss:StyleID="${numberStylePrefix}"><Data ss:Type="Number">${row.nominalAktual}</Data></Cell>
     </Row>`
         })
 
@@ -507,56 +461,33 @@ export function ExportData() {
           )
         })
 
-        // Cek apakah ada pembayaran untuk bulan depan
-        const nextMonthPayment = payments.find((p) => {
-          const paymentDate = new Date(p.date)
-          return (
-            p.customerId === customer.customerId &&
-            paymentDate.getMonth() === nextMonth &&
-            paymentDate.getFullYear() === nextMonthYear
-          )
-        })
+        // Find the most recent payment for this customer (for deposit users)
+        const mostRecentPayment = payments
+          .filter((p) => p.customerId === customer.customerId)
+          .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())[0]
 
         let status = ""
         let tanggalBayar = ""
-        let nominal = 0
         const uangTitip = customer.deposit || 0
-        let nextMonthStatus = ""
-
-        // Hitung berapa bulan yang bisa dibayar dengan deposit
-        const monthsCoveredByDeposit = calculateMonthsCoveredByDeposit(customer)
 
         if (customer.status === "inactive") {
           status = "Tidak Berlangganan"
-          nextMonthStatus = "Tidak Berlangganan"
         } else {
-          // Status bulan ini
-          if (payment) {
+          // Check if customer has paid this month OR has sufficient deposit
+          const hasPaidThisMonth = payment !== undefined
+          const hasSufficientDeposit = (customer.deposit || 0) >= customer.monthlyFee
+          
+          if (hasPaidThisMonth) {
+            // Customer paid this month
             status = "Sudah Bayar"
             tanggalBayar = format(new Date(payment.date), "dd/MM/yyyy")
-            nominal = payment.amount
+          } else if (hasSufficientDeposit) {
+            // Customer using deposit - show most recent payment date or current date
+            status = "Sudah Bayar"
+            tanggalBayar = mostRecentPayment ? format(new Date(mostRecentPayment.date), "dd/MM/yyyy") : format(new Date(), "dd/MM/yyyy")
           } else {
             status = "Belum Bayar"
           }
-
-          // Status bulan depan
-          if (nextMonthPayment) {
-            nextMonthStatus = "Sudah Bayar"
-          } else if (monthsCoveredByDeposit >= 1) {
-            nextMonthStatus = "Sudah Bayar (Uang Titip)"
-          } else {
-            nextMonthStatus = "Belum Bayar"
-          }
-        }
-
-        // Status 2 bulan depan
-        let twoMonthsAheadStatus = ""
-        if (customer.status === "inactive") {
-          twoMonthsAheadStatus = "Tidak Berlangganan"
-        } else if (monthsCoveredByDeposit >= 2) {
-          twoMonthsAheadStatus = "Sudah Bayar (Uang Titip)"
-        } else {
-          twoMonthsAheadStatus = "Belum Bayar"
         }
 
         // Hitung Total Kewajiban Bayar
@@ -568,15 +499,25 @@ export function ExportData() {
           No: index + 1,
           Nama: customer.name,
           "Tarif Bulanan": customer.monthlyFee > 0 ? `Rp ${customer.monthlyFee.toLocaleString("id-ID")}` : "Rp 0",
+          "Tarif Bulanan Value": customer.monthlyFee || 0,
           Bandwidth: `${customer.bandwidth || 4} Mbps`,
           Tunggakan: customer.debt > 0 ? `Rp ${customer.debt.toLocaleString("id-ID")}` : "Rp 0",
+          "Tunggakan Value": customer.debt || 0,
           "Uang Titip": uangTitip > 0 ? `Rp ${uangTitip.toLocaleString("id-ID")}` : "Rp 0",
+          "Uang Titip Value": uangTitip || 0,
           "Total Kewajiban Bayar": totalKewajiban > 0 ? `Rp ${totalKewajiban.toLocaleString("id-ID")}` : "Rp 0",
+          "Total Kewajiban Value": totalKewajiban || 0,
           Status: status,
           "Tanggal Bayar": tanggalBayar || "-",
-          Nominal: payment ? `Rp ${payment.amount.toLocaleString("id-ID")}` : "Rp 0",
+          "Nominal Aktual": payment ? `Rp ${payment.amount.toLocaleString("id-ID")}` : "Rp 0",
         }
       })
+
+      // Calculate totals for summary row
+      const totalTarifBulanan = data.reduce((sum, row) => sum + row["Tarif Bulanan Value"], 0)
+      const totalTunggakan = data.reduce((sum, row) => sum + row["Tunggakan Value"], 0)
+      const totalUangTitip = data.reduce((sum, row) => sum + row["Uang Titip Value"], 0)
+      const totalKewajiban = data.reduce((sum, row) => sum + row["Total Kewajiban Value"], 0)
 
       // Create HTML table for better Excel compatibility
       let htmlContent = `
@@ -609,7 +550,7 @@ export function ExportData() {
         .col-kewajiban { width: 150px; }
         .col-status { width: 120px; }
         .col-tanggal { width: 100px; }
-        .col-nominal { width: 100px; }
+        .col-nominal { width: 120px; }
       </style>
     </head>
     <body>
@@ -627,7 +568,7 @@ export function ExportData() {
             <th class="currency col-kewajiban">Total Kewajiban Bayar</th>
             <th class="col-status">Status</th>
             <th class="col-tanggal">Tanggal Bayar</th>
-            <th class="currency col-nominal">Nominal</th>
+            <th class="currency col-nominal">Nominal Aktual</th>
           </tr>
         </thead>
         <tbody>
@@ -653,10 +594,25 @@ export function ExportData() {
       <td class="currency">${row["Total Kewajiban Bayar"]}</td>
       <td>${row["Status"]}</td>
       <td>${row["Tanggal Bayar"]}</td>
-      <td class="currency">${row.Nominal}</td>
+      <td class="currency">${row["Nominal Aktual"]}</td>
     </tr>
   `
       })
+
+      // Add summary row
+      htmlContent += `
+    <tr style="background-color: #f0f0f0; font-weight: bold;">
+      <td colspan="2" style="text-align: center;"><strong>JUMLAH</strong></td>
+      <td class="currency"><strong>Rp ${totalTarifBulanan.toLocaleString("id-ID")}</strong></td>
+      <td></td>
+      <td class="currency"><strong>Rp ${totalTunggakan.toLocaleString("id-ID")}</strong></td>
+      <td class="currency"><strong>Rp ${totalUangTitip.toLocaleString("id-ID")}</strong></td>
+      <td class="currency"><strong>Rp ${totalKewajiban.toLocaleString("id-ID")}</strong></td>
+      <td></td>
+      <td></td>
+      <td></td>
+    </tr>
+  `
 
       htmlContent += `
           </tbody>
@@ -692,12 +648,40 @@ export function ExportData() {
     }
   }
 
-  // Calculate summary statistics
+  // Calculate summary statistics for current month
   const currentYear = new Date().getFullYear()
+  const currentMonth = new Date().getMonth()
   const totalCustomers = customers.length
   const activeCustomers = customers.filter((c) => c.status === "active").length
-  const paidCustomers = customers.filter((c) => payments.some((p) => p.customerId === c.customerId)).length
-  const totalPaid = payments.reduce((sum, payment) => sum + payment.amount, 0)
+  
+  // Get current month payments
+  const currentMonthPayments = payments.filter((payment) => {
+    const paymentDate = new Date(payment.date)
+    return paymentDate.getMonth() === currentMonth && paymentDate.getFullYear() === currentYear
+  })
+
+  // Calculate customers who are considered "paid" (either paid this month or have sufficient deposit)
+  const currentMonthPaidCustomerIds = new Set(currentMonthPayments.map((p) => p.customerId))
+  const paidCustomers = customers.filter((customer) => {
+    if (customer.status === "inactive") return false
+    const hasPaidThisMonth = currentMonthPaidCustomerIds.has(customer.customerId)
+    const hasSufficientDeposit = (customer.deposit || 0) >= customer.monthlyFee
+    return hasPaidThisMonth || hasSufficientDeposit
+  }).length
+
+  // Calculate total target and total unpaid for current month
+  const activeCustomerList = customers.filter((c) => c.status === "active")
+  const totalTarget = activeCustomerList.reduce((sum, customer) => sum + customer.monthlyFee, 0)
+  const totalUnpaid = activeCustomerList
+    .filter((customer) => {
+      const hasPaidThisMonth = currentMonthPaidCustomerIds.has(customer.customerId)
+      const hasSufficientDeposit = (customer.deposit || 0) >= customer.monthlyFee
+      return !hasPaidThisMonth && !hasSufficientDeposit
+    })
+    .reduce((sum, customer) => sum + customer.monthlyFee, 0)
+  
+  // Calculate total paid as Target - Total Unpaid
+  const totalPaid = totalTarget - totalUnpaid
 
   // Calculate monthly statistics for current year
   const monthlyStats = []
