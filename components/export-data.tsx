@@ -40,6 +40,31 @@ export function ExportData() {
     })
   }
 
+  // Helper function to calculate remaining deposit for a specific month
+  const calculateRemainingDeposit = (customer: any, year: number, month: number) => {
+    if (month < 6 || customer.status !== "active") {
+      return customer.deposit || 0
+    }
+
+    let totalUsed = 0
+    
+    // Cek setiap bulan dari Juli sampai bulan sebelumnya
+    for (let m = 6; m < month; m++) {
+      const mPayments = getPaymentsForMonth(year, m)
+      const mPayment = mPayments.find((p) => p.customerId === customer.customerId)
+      
+      // Jika tidak ada pembayaran aktual di bulan ini, maka deposit digunakan
+      if (!mPayment) {
+        const remainingDeposit = (customer.deposit || 0) - totalUsed
+        if (remainingDeposit >= (customer.monthlyFee || 0)) {
+          totalUsed += customer.monthlyFee || 0
+        }
+      }
+    }
+    
+    return Math.max(0, (customer.deposit || 0) - totalUsed)
+  }
+
   // Fungsi sederhana untuk menghitung berapa bulan yang bisa dibayar dengan deposit
   const calculateMonthsCoveredByDeposit = (customer: any) => {
     if (customer.monthlyFee === 0) return 0
@@ -65,6 +90,107 @@ export function ExportData() {
     const currentMonth = currentDate.getMonth()
     const currentYear = currentDate.getFullYear()
 
+    // Jika bulan Januari-Juni (0-5), return data kosong
+    if (month < 6) {
+      return customers.map((customer, index) => ({
+        no: index + 1,
+        nama: customer.name,
+        tarif: customer.monthlyFee,
+        bandwidth: customer.bandwidth || 4,
+        tunggakan: 0,
+        uangTitip: 0,
+        totalKewajiban: 0,
+        status: "Tidak Berlangganan",
+        tanggal: "",
+        nominal: 0,
+        nominalAktual: 0,
+        rowStyle: "InactiveStyle",
+      }))
+    }
+
+    // Jika bulan setelah bulan sekarang, cek apakah ada uang titip yang berlaku
+    if (month > currentMonth) {
+      return customers.map((customer, index) => {
+        // Hitung uang titip yang tersisa untuk bulan ini
+        let uangTitip = 0
+        if (customer.status === "active" && customer.deposit > 0) {
+          let totalUsed = 0
+          
+          // Cek setiap bulan dari Juli sampai bulan sekarang
+          for (let m = 6; m <= currentMonth; m++) {
+            const mPayments = getPaymentsForMonth(year, m)
+            const mPayment = mPayments.find((p) => p.customerId === customer.customerId)
+            
+            // Jika tidak ada pembayaran aktual di bulan ini, maka deposit digunakan
+            if (!mPayment) {
+              const remainingDeposit = (customer.deposit || 0) - totalUsed
+              if (remainingDeposit >= (customer.monthlyFee || 0)) {
+                totalUsed += customer.monthlyFee || 0
+              }
+            }
+          }
+          
+          uangTitip = Math.max(0, (customer.deposit || 0) - totalUsed)
+        }
+
+        // Jika tidak ada uang titip yang tersisa, return data kosong
+        if (uangTitip === 0) {
+          return {
+            no: index + 1,
+            nama: customer.name,
+            tarif: customer.monthlyFee,
+            bandwidth: customer.bandwidth || 4,
+            tunggakan: 0,
+            uangTitip: 0,
+            totalKewajiban: 0,
+            status: "Tidak Berlangganan",
+            tanggal: "",
+            nominal: 0,
+            nominalAktual: 0,
+            rowStyle: "InactiveStyle",
+          }
+        }
+
+        // Jika ada uang titip, hitung berapa bulan yang bisa dibayar
+        const monthsCovered = Math.floor(uangTitip / (customer.monthlyFee || 1))
+        const targetMonth = month - 6 // Bulan relatif terhadap Juli
+        
+        // Jika bulan ini masih dalam jangkauan uang titip
+        if (targetMonth <= monthsCovered) {
+          return {
+            no: index + 1,
+            nama: customer.name,
+            tarif: customer.monthlyFee,
+            bandwidth: customer.bandwidth || 4,
+            tunggakan: 0,
+            uangTitip: customer.monthlyFee, // Uang titip yang digunakan untuk bulan ini
+            totalKewajiban: 0,
+            status: "Sudah Bayar",
+            tanggal: "Uang Titip",
+            nominal: 0,
+            nominalAktual: 0,
+            rowStyle: "DataStyle",
+          }
+        } else {
+          // Bulan ini sudah melebihi jangkauan uang titip
+          return {
+            no: index + 1,
+            nama: customer.name,
+            tarif: customer.monthlyFee,
+            bandwidth: customer.bandwidth || 4,
+            tunggakan: 0,
+            uangTitip: 0,
+            totalKewajiban: 0,
+            status: "Tidak Berlangganan",
+            tanggal: "",
+            nominal: 0,
+            nominalAktual: 0,
+            rowStyle: "InactiveStyle",
+          }
+        }
+      })
+    }
+
     const monthPayments = getPaymentsForMonth(year, month)
 
     return customers.map((customer, index) => {
@@ -78,14 +204,29 @@ export function ExportData() {
       let status = ""
       let tanggalBayar = ""
       let nominal = 0
-      const uangTitip = customer.deposit || 0
+      
+      // Hitung uang titip yang tersisa berdasarkan bulan
+      let uangTitip = calculateRemainingDeposit(customer, year, month)
+      
+      // Jika ada pembayaran aktual di bulan ini, uang titip tidak berkurang
+      if (payment) {
+        uangTitip = calculateRemainingDeposit(customer, year, month)
+      } else {
+        // Jika tidak ada pembayaran aktual, cek apakah uang titip cukup untuk bulan ini
+        const remainingDeposit = calculateRemainingDeposit(customer, year, month)
+        if (remainingDeposit >= (customer.monthlyFee || 0)) {
+          uangTitip = customer.monthlyFee || 0
+        } else {
+          uangTitip = remainingDeposit
+        }
+      }
 
       if (customer.status === "inactive") {
         status = "Tidak Berlangganan"
       } else {
         // Check if customer has paid this month OR has sufficient deposit
         const hasPaidThisMonth = payment !== undefined
-        const hasSufficientDeposit = (customer.deposit || 0) >= customer.monthlyFee
+        const hasSufficientDeposit = uangTitip >= customer.monthlyFee
         
         if (hasPaidThisMonth) {
           // Customer paid this month
@@ -93,9 +234,14 @@ export function ExportData() {
           tanggalBayar = format(new Date(payment.date), "dd/MM/yyyy")
           nominal = payment.amount
         } else if (hasSufficientDeposit) {
-          // Customer using deposit - show most recent payment date or current date
+          // Customer using deposit - show most recent payment date
           status = "Sudah Bayar"
-          tanggalBayar = mostRecentPayment ? format(new Date(mostRecentPayment.date), "dd/MM/yyyy") : format(new Date(), "dd/MM/yyyy")
+          // Cari pembayaran terakhir untuk tanggal bayar
+          const lastPayment = payments
+            .filter((p) => p.customerId === customer.customerId)
+            .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())[0]
+          
+          tanggalBayar = lastPayment ? format(new Date(lastPayment.date), "dd/MM/yyyy") : format(new Date(), "dd/MM/yyyy")
           nominal = 0 // Show 0 for deposit users
         } else {
           status = "Belum Bayar"
@@ -103,8 +249,42 @@ export function ExportData() {
       }
 
       // Hitung Total Kewajiban Bayar
-      const tunggakan = customer.debt || 0
       const tarifBulanan = customer.monthlyFee || 0
+      
+      // Logika tunggakan: hanya muncul di bulan berikutnya
+      let tunggakan = 0
+      if (month > 6) { // Mulai dari Agustus (bulan 7)
+        // Cek apakah customer tidak bayar di bulan sebelumnya
+        const previousMonth = month - 1
+        const previousMonthPayments = getPaymentsForMonth(year, previousMonth)
+        const previousPayment = previousMonthPayments.find((p) => p.customerId === customer.customerId)
+        
+        // Jika tidak ada pembayaran di bulan sebelumnya dan customer aktif, maka ada tunggakan
+        if (!previousPayment && customer.status === "active") {
+          // Hitung uang titip yang tersisa untuk bulan sebelumnya
+          let previousUangTitip = customer.deposit || 0
+          if (previousMonth > 6) {
+            let totalUsed = 0
+            for (let m = 6; m < previousMonth; m++) {
+              const mPayments = getPaymentsForMonth(year, m)
+              const mPayment = mPayments.find((p) => p.customerId === customer.customerId)
+              if (!mPayment) {
+                const remainingDeposit = (customer.deposit || 0) - totalUsed
+                if (remainingDeposit >= (customer.monthlyFee || 0)) {
+                  totalUsed += customer.monthlyFee || 0
+                }
+              }
+            }
+            previousUangTitip = Math.max(0, (customer.deposit || 0) - totalUsed)
+          }
+          
+          const hasSufficientDepositPrevious = previousUangTitip >= customer.monthlyFee
+          if (!hasSufficientDepositPrevious) {
+            tunggakan = customer.monthlyFee || 0
+          }
+        }
+      }
+      
       const totalKewajiban = Math.max(0, tarifBulanan + tunggakan - uangTitip)
 
       // Determine row style based on customer status and debt
@@ -241,25 +421,75 @@ export function ExportData() {
    </Borders>
    <Alignment ss:Horizontal="Right"/>
   </Style>
+  <Style ss:ID="SummaryStyle">
+   <Font ss:Bold="1"/>
+   <Interior ss:Color="#D4EDDA" ss:Pattern="Solid"/>
+   <Borders>
+    <Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="2"/>
+    <Border ss:Position="Left" ss:LineStyle="Continuous" ss:Weight="1"/>
+    <Border ss:Position="Right" ss:LineStyle="Continuous" ss:Weight="1"/>
+    <Border ss:Position="Top" ss:LineStyle="Continuous" ss:Weight="1"/>
+   </Borders>
+   <Alignment ss:Horizontal="Center" ss:Vertical="Center"/>
+  </Style>
+  <Style ss:ID="NumberSummaryStyle">
+   <Font ss:Bold="1"/>
+   <NumberFormat ss:Format="#,##0"/>
+   <Interior ss:Color="#D4EDDA" ss:Pattern="Solid"/>
+   <Borders>
+    <Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="2"/>
+    <Border ss:Position="Left" ss:LineStyle="Continuous" ss:Weight="1"/>
+    <Border ss:Position="Right" ss:LineStyle="Continuous" ss:Weight="1"/>
+    <Border ss:Position="Top" ss:LineStyle="Continuous" ss:Weight="1"/>
+   </Borders>
+   <Alignment ss:Horizontal="Right"/>
+  </Style>
  </Styles>
 `
 
       // Create summary worksheet
       const summaryData = []
       for (let month = 0; month < 12; month++) {
-        const monthPayments = getPaymentsForMonth(currentYear, month)
-        const activeCustomersCount = customers.filter((c) => c.status === "active").length
-        const paidCount = monthPayments.length
-        const unpaidCount = activeCustomersCount - paidCount
-        const totalAmount = monthPayments.reduce((sum, p) => sum + p.amount, 0)
+        if (month < 6) {
+          // Januari-Juni: data kosong
+          summaryData.push({
+            month: getMonthName(month),
+            total: 0,
+            paid: 0,
+            unpaid: 0,
+            amount: 0,
+          })
+        } else if (month > currentMonth) {
+          // Bulan setelah bulan sekarang: data kosong kecuali ada uang titip
+          const monthData = createMonthSheetData(currentYear, month)
+          const activeCustomersCount = monthData.filter((c) => c.status === "Sudah Bayar" || c.status === "Belum Bayar").length
+          const paidCount = monthData.filter((c) => c.status === "Sudah Bayar").length
+          const unpaidCount = monthData.filter((c) => c.status === "Belum Bayar").length
+          const totalAmount = monthData.reduce((sum, c) => sum + c.nominalAktual, 0)
 
-        summaryData.push({
-          month: getMonthName(month),
-          total: activeCustomersCount,
-          paid: paidCount,
-          unpaid: unpaidCount,
-          amount: totalAmount,
-        })
+          summaryData.push({
+            month: getMonthName(month),
+            total: activeCustomersCount,
+            paid: paidCount,
+            unpaid: unpaidCount,
+            amount: totalAmount,
+          })
+        } else {
+          // Juli sampai bulan sekarang: data normal
+          const monthPayments = getPaymentsForMonth(currentYear, month)
+          const activeCustomersCount = customers.filter((c) => c.status === "active").length
+          const paidCount = monthPayments.length
+          const unpaidCount = activeCustomersCount - paidCount
+          const totalAmount = monthPayments.reduce((sum, p) => sum + p.amount, 0)
+
+          summaryData.push({
+            month: getMonthName(month),
+            total: activeCustomersCount,
+            paid: paidCount,
+            unpaid: unpaidCount,
+            amount: totalAmount,
+          })
+        }
       }
 
       xmlContent += `
@@ -340,9 +570,15 @@ export function ExportData() {
    <Cell ss:StyleID="HeaderStyle"><Data ss:Type="String">Total Kewajiban Bayar</Data></Cell>
    <Cell ss:StyleID="HeaderStyle"><Data ss:Type="String">Status</Data></Cell>
    <Cell ss:StyleID="HeaderStyle"><Data ss:Type="String">Tanggal Bayar</Data></Cell>
-   <Cell ss:StyleID="HeaderStyle"><Data ss:Type="String">Nominal</Data></Cell>
    <Cell ss:StyleID="HeaderStyle"><Data ss:Type="String">Nominal Aktual</Data></Cell>
   </Row>`
+
+        // Calculate totals for summary row
+        const totalTarifBulanan = monthData.reduce((sum, row) => sum + row.tarif, 0)
+        const totalTunggakan = monthData.reduce((sum, row) => sum + row.tunggakan, 0)
+        const totalUangTitip = monthData.reduce((sum, row) => sum + row.uangTitip, 0)
+        const totalKewajiban = monthData.reduce((sum, row) => sum + row.totalKewajiban, 0)
+        const totalNominalAktual = monthData.reduce((sum, row) => sum + row.nominalAktual, 0)
 
         monthData.forEach((row) => {
           const stylePrefix = row.rowStyle
@@ -364,10 +600,24 @@ export function ExportData() {
       <Cell ss:StyleID="${numberStylePrefix}"><Data ss:Type="Number">${row.totalKewajiban}</Data></Cell>
       <Cell ss:StyleID="${stylePrefix}"><Data ss:Type="String">${row.status}</Data></Cell>
       <Cell ss:StyleID="${stylePrefix}"><Data ss:Type="String">${row.tanggal}</Data></Cell>
-      <Cell ss:StyleID="${numberStylePrefix}"><Data ss:Type="Number">${row.nominal}</Data></Cell>
       <Cell ss:StyleID="${numberStylePrefix}"><Data ss:Type="Number">${row.nominalAktual}</Data></Cell>
     </Row>`
         })
+
+        // Add summary row
+        xmlContent += `
+    <Row ss:Height="20">
+      <Cell ss:StyleID="SummaryStyle"><Data ss:Type="String">JUMLAH</Data></Cell>
+      <Cell ss:StyleID="SummaryStyle"><Data ss:Type="String"></Data></Cell>
+      <Cell ss:StyleID="NumberSummaryStyle"><Data ss:Type="Number">${totalTarifBulanan}</Data></Cell>
+      <Cell ss:StyleID="SummaryStyle"><Data ss:Type="String"></Data></Cell>
+      <Cell ss:StyleID="NumberSummaryStyle"><Data ss:Type="Number">${totalTunggakan}</Data></Cell>
+      <Cell ss:StyleID="NumberSummaryStyle"><Data ss:Type="Number">${totalUangTitip}</Data></Cell>
+      <Cell ss:StyleID="NumberSummaryStyle"><Data ss:Type="Number">${totalKewajiban}</Data></Cell>
+      <Cell ss:StyleID="SummaryStyle"><Data ss:Type="String"></Data></Cell>
+      <Cell ss:StyleID="SummaryStyle"><Data ss:Type="String"></Data></Cell>
+      <Cell ss:StyleID="NumberSummaryStyle"><Data ss:Type="Number">${totalNominalAktual}</Data></Cell>
+    </Row>`
 
         xmlContent += `
 </Table>
@@ -518,6 +768,13 @@ export function ExportData() {
       const totalTunggakan = data.reduce((sum, row) => sum + row["Tunggakan Value"], 0)
       const totalUangTitip = data.reduce((sum, row) => sum + row["Uang Titip Value"], 0)
       const totalKewajiban = data.reduce((sum, row) => sum + row["Total Kewajiban Value"], 0)
+      
+      // Calculate total Nominal Aktual
+      const totalNominalAktual = data.reduce((sum, row) => {
+        const nominalAktualStr = row["Nominal Aktual"]
+        const nominalAktualValue = nominalAktualStr === "Rp 0" ? 0 : parseInt(nominalAktualStr.replace(/[^\d]/g, ""))
+        return sum + nominalAktualValue
+      }, 0)
 
       // Create HTML table for better Excel compatibility
       let htmlContent = `
@@ -610,7 +867,7 @@ export function ExportData() {
       <td class="currency"><strong>Rp ${totalKewajiban.toLocaleString("id-ID")}</strong></td>
       <td></td>
       <td></td>
-      <td></td>
+      <td class="currency"><strong>Rp ${totalNominalAktual.toLocaleString("id-ID")}</strong></td>
     </tr>
   `
 
@@ -680,8 +937,8 @@ export function ExportData() {
     })
     .reduce((sum, customer) => sum + customer.monthlyFee, 0)
   
-  // Calculate total paid as Target - Total Unpaid
-  const totalPaid = totalTarget - totalUnpaid
+  // Calculate total paid - hanya dari pembayaran aktual, bukan dari uang titip
+  const totalPaid = currentMonthPayments.reduce((sum, payment) => sum + payment.amount, 0)
 
   // Calculate monthly statistics for current year
   const monthlyStats = []

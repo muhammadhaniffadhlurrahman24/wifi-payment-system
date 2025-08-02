@@ -6,7 +6,7 @@ import { usePayment } from "@/context/payment-context"
 import { getActiveCustomers, getTotalMonthlyTarget } from "@/lib/data"
 
 export function MonthlySummary() {
-  const { totalPaid, totalCustomersPaid } = usePayment()
+  const { totalPaid, totalUangTitip, totalCustomersPaid } = usePayment()
   const activeCustomers = getActiveCustomers()
   const totalTarget = getTotalMonthlyTarget()
   const progressPercentage = totalTarget > 0 ? (totalPaid / totalTarget) * 100 : 0
@@ -26,10 +26,14 @@ export function MonthlySummary() {
           <Progress value={progressPercentage} className="h-2" />
         </div>
 
-        <div className="grid grid-cols-2 gap-4 text-sm">
+        <div className="grid grid-cols-3 gap-4 text-sm">
           <div>
             <p className="text-muted-foreground">Terkumpul</p>
             <p className="font-medium">Rp {totalPaid.toLocaleString("id-ID")}</p>
+          </div>
+          <div>
+            <p className="text-muted-foreground">Uang Titip</p>
+            <p className="font-medium">Rp {totalUangTitip.toLocaleString("id-ID")}</p>
           </div>
           <div>
             <p className="text-muted-foreground">Target</p>

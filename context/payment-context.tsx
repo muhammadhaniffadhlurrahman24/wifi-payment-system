@@ -38,7 +38,9 @@ type PaymentContextType = {
   addPayment: (payment: Omit<Payment, "id" | "paymentId" | "customerName">) => Promise<void>
   updateCustomer: (customerId: string, data: Partial<Customer>) => Promise<void>
   totalPaid: number
+  totalUangTitip: number
   totalCustomersPaid: number
+  totalCustomersActuallyPaid: number
   totalUnpaid: number
   processPayment: (customerId: string, amount: number, date: Date) => Promise<any>
   accumulateMonthlyDebt: () => Promise<any>
@@ -76,21 +78,38 @@ export function PaymentProvider({ children }: { children: React.ReactNode }) {
     return hasPaidThisMonth || hasSufficientDeposit
   })
 
-  const totalUnpaid = activeCustomers
-    .filter((customer) => {
-      const hasPaidThisMonth = currentMonthPaidCustomerIds.has(customer.customerId)
-      const hasSufficientDeposit = (customer.deposit || 0) >= customer.monthlyFee
-      return !hasPaidThisMonth && !hasSufficientDeposit
-    })
-    .reduce((sum, customer) => sum + customer.monthlyFee, 0)
+  // Calculate customers who actually paid this month (not using deposit)
+  const customersActuallyPaid = activeCustomers.filter((customer) => {
+    return currentMonthPaidCustomerIds.has(customer.customerId)
+  })
+
+  // Calculate customers who are using deposit (not paid this month but have sufficient deposit)
+  const customersUsingDeposit = activeCustomers.filter((customer) => {
+    const hasPaidThisMonth = currentMonthPaidCustomerIds.has(customer.customerId)
+    const hasSufficientDeposit = (customer.deposit || 0) >= customer.monthlyFee
+    return !hasPaidThisMonth && hasSufficientDeposit
+  })
 
   // Calculate total target (sum of all active customers' monthly fees)
   const totalTarget = activeCustomers.reduce((sum, customer) => sum + customer.monthlyFee, 0)
 
-  // Calculate total paid as Target - Total Unpaid
-  const totalPaid = totalTarget - totalUnpaid
+  // Calculate total paid - hanya dari pembayaran aktual, bukan dari uang titip
+  const totalPaid = currentMonthPayments.reduce((sum, payment) => sum + payment.amount, 0)
+
+  // Calculate total uang titip (deposit yang digunakan)
+  const totalUangTitip = activeCustomers
+    .filter((customer) => {
+      const hasPaidThisMonth = currentMonthPaidCustomerIds.has(customer.customerId)
+      const hasSufficientDeposit = (customer.deposit || 0) >= customer.monthlyFee
+      return !hasPaidThisMonth && hasSufficientDeposit
+    })
+    .reduce((sum, customer) => sum + customer.monthlyFee, 0)
+
+  // Calculate total unpaid as Target - Terkumpul (pembayaran aktual + uang titip)
+  const totalUnpaid = totalTarget - (totalPaid + totalUangTitip)
 
   const totalCustomersPaid = customersPaid.length
+  const totalCustomersActuallyPaid = customersActuallyPaid.length
 
   const fetchCustomers = async () => {
     try {
@@ -392,7 +411,9 @@ export function PaymentProvider({ children }: { children: React.ReactNode }) {
         accumulateMonthlyDebt,
         calculateCurrentBill,
         totalPaid,
+        totalUangTitip,
         totalCustomersPaid,
+        totalCustomersActuallyPaid,
         totalUnpaid,
       }}
     >
