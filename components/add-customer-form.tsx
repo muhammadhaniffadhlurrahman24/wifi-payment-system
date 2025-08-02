@@ -37,18 +37,12 @@ export function AddCustomerForm() {
     setIsSubmitting(true)
 
     try {
-      // Generate a unique customer ID
-      const customerId = `CUST${Date.now().toString().slice(-6)}`
-
       const response = await fetch("/api/customers", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({
-          ...values,
-          customerId,
-        }),
+        body: JSON.stringify(values),
       })
 
       if (!response.ok) {
@@ -58,7 +52,11 @@ export function AddCustomerForm() {
 
       toast({
         title: "Pelanggan berhasil ditambahkan",
-        description: `${values.name} telah ditambahkan sebagai pelanggan baru`,
+        description: `${values.name} telah ditambahkan sebagai pelanggan baru${
+          values.status === "active" 
+            ? ` dengan tagihan bulanan Rp ${values.monthlyFee.toLocaleString('id-ID')} mulai bulan ini`
+            : " (tidak aktif - tidak ada tagihan)"
+        }`,
       })
 
       // Reset form
@@ -172,7 +170,9 @@ export function AddCustomerForm() {
                       <SelectItem value="inactive">Tidak Aktif</SelectItem>
                     </SelectContent>
                   </Select>
-                  <FormDescription>Status pelanggan</FormDescription>
+                  <FormDescription>
+                    Status pelanggan. Pelanggan aktif akan dikenakan tagihan bulanan mulai bulan ini.
+                  </FormDescription>
                   <FormMessage />
                 </FormItem>
               )}

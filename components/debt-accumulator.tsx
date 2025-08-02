@@ -10,10 +10,31 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 
 export function DebtAccumulator() {
   const [isProcessing, setIsProcessing] = useState(false)
-  const { accumulateMonthlyDebt, customers, payments } = usePayment()
+  const { accumulateMonthlyDebt, customers, payments, suspensions } = usePayment()
 
-  // Hitung pelanggan yang belum bayar dengan lebih akurat
-  const activeCustomers = customers.filter((c) => c.status === "active")
+  // Hitung pelanggan yang belum bayar dengan lebih akurat (tidak termasuk yang ditangguhkan)
+  const activeCustomers = customers.filter((c) => {
+    if (c.status !== "active") return false
+    // Check if customer is suspended for current month
+    const isSuspended = suspensions.some((suspension) => {
+      if (suspension.customerId !== c.customerId) return false
+      
+      // Check if the current month/year falls within the suspension period
+      const currentDate = new Date()
+      const currentMonth = currentDate.getMonth()
+      const currentYear = currentDate.getFullYear()
+      
+      // Jika suspension dimulai di bulan ini, langsung berlaku
+      if (currentYear === suspension.startYear && currentMonth === suspension.startMonth) return true
+      if (currentYear < suspension.startYear || currentYear > suspension.endYear) return false
+      
+      if (currentYear === suspension.startYear && currentMonth < suspension.startMonth) return false
+      if (currentYear === suspension.endYear && currentMonth > suspension.endMonth) return false
+      
+      return true
+    })
+    return !isSuspended
+  })
 
   // Dapatkan bulan dan tahun saat ini
   const now = new Date()

@@ -32,7 +32,7 @@ const FormSchema = z.object({
 })
 
 export function PaymentForm() {
-  const { customers, processPayment, loading, calculateCurrentBill } = usePayment()
+  const { customers, suspensions, processPayment, loading, calculateCurrentBill } = usePayment()
   const [open, setOpen] = useState(false)
   const [selectedCustomer, setSelectedCustomer] = useState<any>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
@@ -100,7 +100,27 @@ export function PaymentForm() {
     }
   }
 
-  const activeCustomers = customers.filter((customer) => customer.status === "active")
+  // Filter active customers and exclude suspended ones
+  const activeCustomers = customers.filter((customer) => {
+    if (customer.status !== "active") return false
+    // Check if customer is suspended for current month
+    const isSuspended = suspensions.some((suspension) => {
+      if (suspension.customerId !== customer.customerId) return false
+      
+      // Check if the current month/year falls within the suspension period
+      const currentDate = new Date()
+      const currentMonth = currentDate.getMonth()
+      const currentYear = currentDate.getFullYear()
+      
+      if (currentYear < suspension.startYear || currentYear > suspension.endYear) return false
+      
+      if (currentYear === suspension.startYear && currentMonth < suspension.startMonth) return false
+      if (currentYear === suspension.endYear && currentMonth > suspension.endMonth) return false
+      
+      return true
+    })
+    return !isSuspended
+  })
 
   return (
     <Card>

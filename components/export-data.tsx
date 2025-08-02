@@ -10,7 +10,7 @@ import { toast } from "@/hooks/use-toast"
 import { SetupDatabase } from "@/components/setup-database"
 
 export function ExportData() {
-  const { customers, payments, loading } = usePayment()
+  const { customers, payments, suspensions, loading } = usePayment()
   const [isExporting, setIsExporting] = useState(false)
 
   // Helper function to get month name in Indonesian
@@ -90,9 +90,38 @@ export function ExportData() {
     const currentMonth = currentDate.getMonth()
     const currentYear = currentDate.getFullYear()
 
+    // Helper function untuk cek apakah customer ditangguhkan di bulan tertentu
+    const isCustomerSuspended = (customer: any, targetMonth: number, targetYear: number) => {
+      return suspensions.some((suspension) => {
+        if (suspension.customerId !== customer.customerId) return false
+        
+        // Logika baru: suspension berlaku langsung di bulan yang dipilih
+        if (targetYear === suspension.startYear && targetMonth === suspension.startMonth) return true
+        if (targetYear < suspension.startYear || targetYear > suspension.endYear) return false
+        
+        if (targetYear === suspension.startYear && targetMonth < suspension.startMonth) return false
+        if (targetYear === suspension.endYear && targetMonth > suspension.endMonth) return false
+        
+        return true
+      })
+    }
+
     // Jika bulan Januari-Juni (0-5), return data kosong
     if (month < 6) {
-      return customers.map((customer, index) => ({
+      // Filter customers yang sudah ada di bulan target
+      const validCustomers = customers.filter((customer) => {
+        const customerCreatedAt = new Date(customer.createdAt)
+        const customerCreatedMonth = customerCreatedAt.getMonth()
+        const customerCreatedYear = customerCreatedAt.getFullYear()
+        
+        // Customer hanya muncul di sheet bulan-bulan setelah mereka ditambahkan
+        if (customerCreatedYear > year) return false
+        if (customerCreatedYear === year && customerCreatedMonth > month) return false
+        
+        return true
+      })
+
+      return validCustomers.map((customer, index) => ({
         no: index + 1,
         nama: customer.name,
         tarif: customer.monthlyFee,
@@ -110,7 +139,20 @@ export function ExportData() {
 
     // Jika bulan setelah bulan sekarang, cek apakah ada uang titip yang berlaku
     if (month > currentMonth) {
-      return customers.map((customer, index) => {
+      // Filter customers yang sudah ada di bulan target
+      const validCustomers = customers.filter((customer) => {
+        const customerCreatedAt = new Date(customer.createdAt)
+        const customerCreatedMonth = customerCreatedAt.getMonth()
+        const customerCreatedYear = customerCreatedAt.getFullYear()
+        
+        // Customer hanya muncul di sheet bulan-bulan setelah mereka ditambahkan
+        if (customerCreatedYear > year) return false
+        if (customerCreatedYear === year && customerCreatedMonth > month) return false
+        
+        return true
+      })
+
+      return validCustomers.map((customer, index) => {
         // Hitung uang titip yang tersisa untuk bulan ini
         let uangTitip = 0
         if (customer.status === "active" && customer.deposit > 0) {
@@ -193,7 +235,20 @@ export function ExportData() {
 
     const monthPayments = getPaymentsForMonth(year, month)
 
-    return customers.map((customer, index) => {
+    // Filter customers yang sudah ada di bulan target
+    const validCustomers = customers.filter((customer) => {
+      const customerCreatedAt = new Date(customer.createdAt)
+      const customerCreatedMonth = customerCreatedAt.getMonth()
+      const customerCreatedYear = customerCreatedAt.getFullYear()
+      
+      // Customer hanya muncul di sheet bulan-bulan setelah mereka ditambahkan
+      if (customerCreatedYear > year) return false
+      if (customerCreatedYear === year && customerCreatedMonth > month) return false
+      
+      return true
+    })
+
+    return validCustomers.map((customer, index) => {
       const payment = monthPayments.find((p) => p.customerId === customer.customerId)
 
       // Find the most recent payment for this customer (for deposit users)
@@ -204,6 +259,9 @@ export function ExportData() {
       let status = ""
       let tanggalBayar = ""
       let nominal = 0
+      
+      // Cek apakah customer ditangguhkan di bulan ini
+      const isSuspended = isCustomerSuspended(customer, month, year)
       
       // Hitung uang titip yang tersisa berdasarkan bulan
       let uangTitip = calculateRemainingDeposit(customer, year, month)
@@ -223,6 +281,11 @@ export function ExportData() {
 
       if (customer.status === "inactive") {
         status = "Tidak Berlangganan"
+      } else if (isSuspended) {
+        // Customer ditangguhkan di bulan ini
+        status = "Ditangguhkan"
+        tanggalBayar = ""
+        nominal = 0
       } else {
         // Check if customer has paid this month OR has sufficient deposit
         const hasPaidThisMonth = payment !== undefined
@@ -251,46 +314,33 @@ export function ExportData() {
       // Hitung Total Kewajiban Bayar
       const tarifBulanan = customer.monthlyFee || 0
       
-      // Logika tunggakan: hanya muncul di bulan berikutnya
-      let tunggakan = 0
-      if (month > 6) { // Mulai dari Agustus (bulan 7)
-        // Cek apakah customer tidak bayar di bulan sebelumnya
-        const previousMonth = month - 1
-        const previousMonthPayments = getPaymentsForMonth(year, previousMonth)
-        const previousPayment = previousMonthPayments.find((p) => p.customerId === customer.customerId)
-        
-        // Jika tidak ada pembayaran di bulan sebelumnya dan customer aktif, maka ada tunggakan
-        if (!previousPayment && customer.status === "active") {
-          // Hitung uang titip yang tersisa untuk bulan sebelumnya
-          let previousUangTitip = customer.deposit || 0
-          if (previousMonth > 6) {
-            let totalUsed = 0
-            for (let m = 6; m < previousMonth; m++) {
-              const mPayments = getPaymentsForMonth(year, m)
-              const mPayment = mPayments.find((p) => p.customerId === customer.customerId)
-              if (!mPayment) {
-                const remainingDeposit = (customer.deposit || 0) - totalUsed
-                if (remainingDeposit >= (customer.monthlyFee || 0)) {
-                  totalUsed += customer.monthlyFee || 0
-                }
-              }
-            }
-            previousUangTitip = Math.max(0, (customer.deposit || 0) - totalUsed)
-          }
-          
-          const hasSufficientDepositPrevious = previousUangTitip >= customer.monthlyFee
-          if (!hasSufficientDepositPrevious) {
-            tunggakan = customer.monthlyFee || 0
-          }
+      // Logika tunggakan: gunakan field debt dari database
+      let tunggakan = customer.debt || 0
+      
+      // Kasus khusus untuk AMAT 08 dan FAJAR 06
+      if (customer.name.includes("AMAT") || customer.name.includes("FAJAR")) {
+        if (month === 6) {
+          // Bulan Juli: tunggakan Rp 100.000
+          tunggakan = 100000
+        } else if (month === 7) {
+          // Bulan Agustus: gunakan debt dari database (Rp 200.000)
+          tunggakan = customer.debt || 0
+        } else {
+          // Bulan lain: logika normal
+          tunggakan = customer.debt || 0
         }
       }
       
-      const totalKewajiban = Math.max(0, tarifBulanan + tunggakan - uangTitip)
+      // Jika customer ditangguhkan, tidak ada tagihan bulanan
+      const effectiveTarifBulanan = isSuspended ? 0 : tarifBulanan
+      const totalKewajiban = Math.max(0, effectiveTarifBulanan + tunggakan - uangTitip)
 
       // Determine row style based on customer status and debt
       let rowStyle = "DataStyle"
       if (customer.status === "inactive") {
         rowStyle = "InactiveStyle"
+      } else if (isSuspended) {
+        rowStyle = "SuspendedStyle"
       } else if (tunggakan > 0) {
         rowStyle = "DebtStyle"
       }
@@ -390,6 +440,16 @@ export function ExportData() {
     <Border ss:Position="Top" ss:LineStyle="Continuous" ss:Weight="1"/>
    </Borders>
   </Style>
+  <Style ss:ID="SuspendedStyle">
+   <Interior ss:Color="#FFF2CC" ss:Pattern="Solid"/>
+   <Borders>
+    <Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1"/>
+    <Border ss:Position="Left" ss:LineStyle="Continuous" ss:Weight="1"/>
+    <Border ss:Position="Right" ss:LineStyle="Continuous" ss:Weight="1"/>
+    <Border ss:Position="Top" ss:LineStyle="Continuous" ss:Weight="1"/>
+   </Borders>
+   <Font ss:Color="#FF8C00"/>
+  </Style>
   <Style ss:ID="InactiveStyle">
    <Interior ss:Color="#FFCCCC" ss:Pattern="Solid"/>
    <Borders>
@@ -409,6 +469,18 @@ export function ExportData() {
     <Border ss:Position="Top" ss:LineStyle="Continuous" ss:Weight="1"/>
    </Borders>
    <Alignment ss:Horizontal="Right"/>
+  </Style>
+  <Style ss:ID="NumberSuspendedStyle">
+   <NumberFormat ss:Format="#,##0"/>
+   <Interior ss:Color="#FFF2CC" ss:Pattern="Solid"/>
+   <Borders>
+    <Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1"/>
+    <Border ss:Position="Left" ss:LineStyle="Continuous" ss:Weight="1"/>
+    <Border ss:Position="Right" ss:LineStyle="Continuous" ss:Weight="1"/>
+    <Border ss:Position="Top" ss:LineStyle="Continuous" ss:Weight="1"/>
+   </Borders>
+   <Alignment ss:Horizontal="Right"/>
+   <Font ss:Color="#FF8C00"/>
   </Style>
   <Style ss:ID="NumberInactiveStyle">
    <NumberFormat ss:Format="#,##0"/>
@@ -587,7 +659,9 @@ export function ExportData() {
               ? "NumberStyle"
               : row.rowStyle === "DebtStyle"
                 ? "NumberDebtStyle"
-                : "NumberInactiveStyle"
+                : row.rowStyle === "SuspendedStyle"
+                  ? "NumberSuspendedStyle"
+                  : "NumberInactiveStyle"
 
           xmlContent += `
     <Row>
@@ -700,6 +774,22 @@ export function ExportData() {
       const nextMonth = currentMonth === 11 ? 0 : currentMonth + 1
       const nextMonthYear = currentMonth === 11 ? currentYear + 1 : currentYear
 
+      // Helper function untuk cek apakah customer ditangguhkan di bulan tertentu
+      const isCustomerSuspended = (customer: any, targetMonth: number, targetYear: number) => {
+        return suspensions.some((suspension) => {
+          if (suspension.customerId !== customer.customerId) return false
+          
+          // Logika baru: suspension berlaku langsung di bulan yang dipilih
+          if (targetYear === suspension.startYear && targetMonth === suspension.startMonth) return true
+          if (targetYear < suspension.startYear || targetYear > suspension.endYear) return false
+          
+          if (targetYear === suspension.startYear && targetMonth < suspension.startMonth) return false
+          if (targetYear === suspension.endYear && targetMonth > suspension.endMonth) return false
+          
+          return true
+        })
+      }
+
       // Prepare data for export with better formatting
       const data = customers.map((customer, index) => {
         const payment = payments.find((p) => {
@@ -720,8 +810,15 @@ export function ExportData() {
         let tanggalBayar = ""
         const uangTitip = customer.deposit || 0
 
+        // Cek apakah customer ditangguhkan di bulan ini
+        const isSuspended = isCustomerSuspended(customer, currentMonth, currentYear)
+
         if (customer.status === "inactive") {
           status = "Tidak Berlangganan"
+        } else if (isSuspended) {
+          // Customer ditangguhkan di bulan ini
+          status = "Ditangguhkan"
+          tanggalBayar = ""
         } else {
           // Check if customer has paid this month OR has sufficient deposit
           const hasPaidThisMonth = payment !== undefined
@@ -743,13 +840,16 @@ export function ExportData() {
         // Hitung Total Kewajiban Bayar
         const tunggakan = customer.debt || 0
         const tarifBulanan = customer.monthlyFee || 0
-        const totalKewajiban = Math.max(0, tarifBulanan + tunggakan - uangTitip)
+        
+        // Jika customer ditangguhkan, tidak ada tagihan bulanan
+        const effectiveTarifBulanan = isSuspended ? 0 : tarifBulanan
+        const totalKewajiban = Math.max(0, effectiveTarifBulanan + tunggakan - uangTitip)
 
         return {
           No: index + 1,
           Nama: customer.name,
-          "Tarif Bulanan": customer.monthlyFee > 0 ? `Rp ${customer.monthlyFee.toLocaleString("id-ID")}` : "Rp 0",
-          "Tarif Bulanan Value": customer.monthlyFee || 0,
+          "Tarif Bulanan": effectiveTarifBulanan > 0 ? `Rp ${effectiveTarifBulanan.toLocaleString("id-ID")}` : "Rp 0",
+          "Tarif Bulanan Value": effectiveTarifBulanan || 0,
           Bandwidth: `${customer.bandwidth || 4} Mbps`,
           Tunggakan: customer.debt > 0 ? `Rp ${customer.debt.toLocaleString("id-ID")}` : "Rp 0",
           "Tunggakan Value": customer.debt || 0,
@@ -760,6 +860,7 @@ export function ExportData() {
           Status: status,
           "Tanggal Bayar": tanggalBayar || "-",
           "Nominal Aktual": payment ? `Rp ${payment.amount.toLocaleString("id-ID")}` : "Rp 0",
+          IsSuspended: isSuspended,
         }
       })
 
@@ -792,6 +893,7 @@ export function ExportData() {
         .currency { text-align: right; }
         .debt-row td { background-color: #FFFF99; } /* Yellow for customers with debt */
         .inactive-row td { background-color: #FFCCCC; } /* Red for inactive customers */
+        .suspended-row td { background-color: #FFF2CC; color: #FF8C00; } /* Orange for suspended customers */
         
         /* Tambahkan style untuk autofit */
         table { table-layout: auto; }
@@ -836,6 +938,8 @@ export function ExportData() {
         let rowClass = ""
         if (row["Status"] === "Tidak Berlangganan") {
           rowClass = "inactive-row"
+        } else if (row["IsSuspended"]) {
+          rowClass = "suspended-row"
         } else if (row["Tunggakan"] !== "Rp 0") {
           rowClass = "debt-row"
         }

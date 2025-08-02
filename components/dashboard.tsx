@@ -14,6 +14,8 @@ import { ExportData } from "@/components/export-data"
 import { MonthlySummary } from "@/components/monthly-summary"
 import { DebtAccumulator } from "@/components/debt-accumulator"
 import { AddCustomerForm } from "@/components/add-customer-form"
+import { SuspensionManager } from "@/components/suspension-manager"
+import { CustomerManager } from "@/components/customer-manager"
 import { UserNav } from "@/components/user-nav"
 import { getActiveCustomers, getTotalMonthlyTarget } from "@/lib/data"
 
@@ -35,7 +37,9 @@ export default function Dashboard() {
           <TabsTrigger value="overview">Overview</TabsTrigger>
           <TabsTrigger value="payments">Pembayaran</TabsTrigger>
           <TabsTrigger value="customers">Pelanggan</TabsTrigger>
+          <TabsTrigger value="customer-manager">Manajemen Pelanggan</TabsTrigger>
           <TabsTrigger value="add-customer">Tambah Pelanggan</TabsTrigger>
+          <TabsTrigger value="suspensions">Penangguhan</TabsTrigger>
           <TabsTrigger value="export">Export Data</TabsTrigger>
         </TabsList>
         <TabsContent value="overview" className="space-y-4">
@@ -97,8 +101,14 @@ export default function Dashboard() {
         <TabsContent value="customers" className="space-y-4">
           <CustomerList />
         </TabsContent>
+        <TabsContent value="customer-manager" className="space-y-4">
+          <CustomerManager />
+        </TabsContent>
         <TabsContent value="add-customer" className="space-y-4">
           <AddCustomerForm />
+        </TabsContent>
+        <TabsContent value="suspensions" className="space-y-4">
+          <SuspensionManager />
         </TabsContent>
         <TabsContent value="export" className="space-y-4">
           <ExportData />

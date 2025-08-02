@@ -25,7 +25,7 @@ type CustomerData = {
   name: string
   monthlyFee: number
   bandwidth: number
-  status: "paid" | "unpaid" | "inactive"
+  status: "paid" | "unpaid" | "inactive" | "suspended"
   amount: number | null
   paymentDate: Date | null
   debt: number
@@ -33,7 +33,7 @@ type CustomerData = {
 }
 
 export function CustomerList() {
-  const { customers, payments, loading } = usePayment()
+  const { customers, payments, loading, isCustomerSuspended } = usePayment()
   const [sorting, setSorting] = useState<SortingState>([])
   const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([])
 
@@ -58,12 +58,14 @@ export function CustomerList() {
       .filter((p) => p.customerId === customer.customerId)
       .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())[0]
 
-    let status: "paid" | "unpaid" | "inactive"
+    let status: "paid" | "unpaid" | "inactive" | "suspended"
     let paymentDate: Date | null = null
     let amount: number | null = null
 
     if (customer.status === "inactive") {
       status = "inactive"
+    } else if (isCustomerSuspended(customer)) {
+      status = "suspended"
     } else {
       // Check if customer has paid this month OR has sufficient deposit
       const hasPaidThisMonth = currentMonthPayment !== undefined
@@ -134,6 +136,9 @@ export function CustomerList() {
         if (status === "inactive") {
           return <Badge variant="secondary">Tidak Berlangganan</Badge>
         }
+        if (status === "suspended") {
+          return <Badge variant="outline" className="text-orange-600 border-orange-600">Ditangguhkan</Badge>
+        }
         return (
           <Badge variant={status === "paid" ? "default" : "destructive"}>
             {status === "paid" ? "Sudah Bayar" : "Belum Bayar"}
@@ -178,9 +183,29 @@ export function CustomerList() {
         )
       },
       cell: ({ row }) => {
-        const amount = row.getValue("amount") as number | null
-        if (amount === null) return "-"
-        return `Rp ${amount.toLocaleString("id-ID")}`
+        const customer = row.original
+        const monthlyFee = customer.monthlyFee
+        const debt = customer.debt
+        const deposit = customer.deposit
+        
+        // Hitung total kewajiban
+        const totalObligation = monthlyFee + debt - deposit
+        
+        // Jika pelanggan baru (debt sama dengan monthlyFee dan belum ada pembayaran bulan ini)
+        const isNewCustomer = debt === monthlyFee && customer.status === "unpaid"
+        
+        if (totalObligation <= 0) {
+          return <span className="text-green-500">Rp 0</span>
+        }
+        
+        return (
+          <div>
+            <div className="font-medium">Rp {totalObligation.toLocaleString("id-ID")}</div>
+            {isNewCustomer && (
+              <div className="text-xs text-blue-600">Tagihan bulanan baru</div>
+            )}
+          </div>
+        )
       },
     },
     {
